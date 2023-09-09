@@ -34,6 +34,14 @@ struct Examples {
     #[clap(short, long)]
     print: bool,
 
+    /// Grab examples from --example
+    #[clap(short, long)]
+    example: bool,
+
+    /// Grab examples from --bin
+    #[clap(short, long)]
+    grab_bin: bool,
+
     /// Run example starting with <EXAMPLE>
     #[clap(short, long, value_name = "EXAMPLE")]
     from: Option<OsString>,
@@ -86,6 +94,48 @@ impl Example {
     }
 }
 
+    fn run_cargo_example() -> Result<Vec<Example>, Box<dyn std::error::Error>> {
+        let sh = Shell::new()?;
+        let output = cmd!(sh,"cargo run --example").quiet()
+            .read()?;
+
+        if !output.contains("Available examples:") {
+            return Err("Could not find available examples".into());
+        }
+
+        let examples = output
+            .lines()
+            .skip_while(|line| !line.contains("Available examples:"))
+            .skip(1) // Skip the header line
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .map(|line| Example::Named(line.into()))
+            .collect::<Vec<_>>();
+
+println!("found examples {}",examples.len());
+        Ok(examples)
+    }
+
+    fn run_cargo_bin() -> Result<Vec<Example>, Box<dyn std::error::Error>> {
+        let sh = Shell::new()?;
+        let output = cmd!(sh,"cargo run --bin").quiet()
+            .read()?;
+
+        if !output.contains("Available binaries:") {
+            return Err("Could not find available binaries".into());
+        }
+
+        let binaries = output
+            .lines()
+            .skip_while(|line| !line.contains("Available binaries:"))
+            .skip(1) // Skip the header line
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .map(|line| Example::Named(line.into()))
+            .collect::<Vec<_>>();
+println!("found bins {}",binaries.len());
+        Ok(binaries)
+    }
 fn main() -> anyhow::Result<()> {
     let Cargo::Examples(cli) = Cargo::parse();
     let sh = Shell::new()?;
@@ -149,6 +199,20 @@ fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .tap_mut(|examples| examples.sort_by(|a, b| a.name().unwrap().cmp(b.name().unwrap()))); // sort the files, so output and execution is deterministic when using `from`
 
+
+            // Run cargo example
+    if let Ok(examples_from_run_cargo_example) = run_cargo_example() {
+        examples.extend(examples_from_run_cargo_example);
+    } else {
+        eprintln!("Error running cargo example");
+    }
+
+    // Run cargo bin
+    if let Ok(examples_from_run_cargo_bin) = run_cargo_bin() {
+        examples.extend(examples_from_run_cargo_bin);
+    } else {
+        eprintln!("Error running cargo bin");
+    }
     // Examples can also exist in an arbitrary path defined in an [[example]] block in the project's manifest
 
     let manifest = Manifest::from_path(manifest_path.clone())?;
@@ -166,6 +230,8 @@ fn main() -> anyhow::Result<()> {
             println!("{}", example.name().unwrap().to_string_lossy());
         }
     }
+
+
 
     // if `from` is not specified run all examples
     let mut run_examples = cli.from.is_none();
